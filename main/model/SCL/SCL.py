@@ -10,7 +10,7 @@ from .resnet_encoder import ResNet
 from .vgg_encoder import VGG
 from .pvtv2_encoder import pvt_v2_b4
 from .cyclemlp_encoder import CycleMLP_B4
-from .modules import ICE, ASPP
+from .modules import CE, ASPP, PSP, MRFC, CustomDecoder
 from timm.models import create_model
 #from pytorch_grad_cam import GradCAM, ScoreCAM
 #from pytorch_grad_cam.utils.image import show_cam_on_image
@@ -107,32 +107,45 @@ class BasicConv2d(nn.Module):
         return x
 
 
-class ICON(torch.nn.Module):
-    def __init__(self, cfg, model_name='ICON-P'):
-        super(ICON, self).__init__()
+class SCL(torch.nn.Module):
+    def __init__(self, cfg):
+        super(SCL, self).__init__()
         self.cfg = cfg
-        self.model_name = model_name
 
-        if self.model_name == 'ICON-P':
-            ### PVT Encoder ###
-            self.encoder = pvt_v2_b4()
+        # PVT Encoder
+        self.encoder = pvt_v2_b4()
 
-            pretrained_dict = torch.load('/home/biyu/ICON-main/checkpoint/Backbone/PVTv2/pvt_v2_b4.pth')
-            pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in self.encoder.state_dict()}
-            self.encoder.load_state_dict(pretrained_dict)
-            self.aspp1 = ASPP(512, 64)
-            self.aspp2 = ASPP(320, 64)
-            self.aspp3 = ASPP(128, 64)
-            self.aspp4 = ASPP(64, 64)
+        pretrained_dict = torch.load('../checkpoint/Backbone/PVTv2/pvt_v2_b4.pth')
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in self.encoder.state_dict()}
+        self.encoder.load_state_dict(pretrained_dict)
+        # enc_channels = [512, 320, 128, 64]
+        # dec_channels = [64, 64, 64, 64]
+        # self.fpn = CustomDecoder(enc_channels, dec_channels)
+        # self.aspp1 = ASPP(512, 64)
+        # self.aspp2 = ASPP(320, 64)
+        # self.aspp3 = ASPP(128, 64)
+        # self.aspp4 = ASPP(64, 64)
+        self.mrfc1 = MRFC(512, 64)
+        self.mrfc2 = MRFC(320, 64)
+        self.mrfc3 = MRFC(128, 64)
+        self.mrfc4 = MRFC(64, 64)
+        # self.psp1 = PSP(512, 64)
+        # self.psp2 = PSP(320, 64)
+        # self.psp3 = PSP(128, 64)
+        # self.psp4 = PSP(64, 64)
 
-        self.ice1 = ICE()
-        self.ice2 = ICE()
+        self.ce1 = CE()
+        self.ce2 = CE()
         self.fuse  = nn.Sequential(nn.Conv2d(64, 64, kernel_size=1), nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True))
 
         self.predtrans1  = nn.Conv2d(64, 1, kernel_size=3, padding=1)
         self.predtrans2  = nn.Conv2d(64, 1, kernel_size=3, padding=1)
         self.predtrans3  = nn.Conv2d(64, 1, kernel_size=3, padding=1)
         self.predtrans4  = nn.Conv2d(64, 1, kernel_size=3, padding=1)
+        # self.predtrans1 = nn.Conv2d(512, 1, kernel_size=3, padding=1)
+        # self.predtrans2 = nn.Conv2d(320, 1, kernel_size=3, padding=1)
+        # self.predtrans3 = nn.Conv2d(128, 1, kernel_size=3, padding=1)
+        # self.predtrans4 = nn.Conv2d(64, 1, kernel_size=3, padding=1)
 
         self.initialize()
 
@@ -144,7 +157,7 @@ class ICON(torch.nn.Module):
         features = self.encoder(x.float())
         # use apm
         # features = self.encoder(x)
-
+        # features = self.fpn(list(features))
         x1 = features[0]
         x2 = features[1]
         x3 = features[2]
@@ -152,20 +165,29 @@ class ICON(torch.nn.Module):
         if len(features) > 4:
             x5 = features[4]
 
-        x1 = self.aspp1(x1)
-        x2 = self.aspp2(x2)
-        x3 = self.aspp3(x3)
-        x4 = self.aspp4(x4)
 
-        x1  = self.ice1(in1=x1, in2=x2)
-        x2  = self.ice1(in1=x2, in2=x1, in3=x3)
-        x3  = self.ice2(in1=x3, in2=x2, in3=x4)
-        x4  = self.ice2(in1=x4, in2=x3)
+        # x1 = self.aspp1(x1)
+        # x2 = self.aspp2(x2)
+        # x3 = self.aspp3(x3)
+        # x4 = self.aspp4(x4)
+        x1 = self.mrfc1(x1)
+        x2 = self.mrfc2(x2)
+        x3 = self.mrfc3(x3)
+        x4 = self.mrfc4(x4)
+        # x1 = self.psp1(x1)
+        # x2 = self.psp2(x2)
+        # x3 = self.psp3(x3)
+        # x4 = self.psp4(x4)
+
+        x1  = self.ce1(in1=x1, in2=x2)
+        x2  = self.ce1(in1=x2, in2=x1, in3=x3)
+        x3  = self.ce2(in1=x3, in2=x2, in3=x4)
+        x4  = self.ce2(in1=x4, in2=x3)
 
         if shape is None:
             shape = x.size()[2:]
 
-        x3 = F.interpolate(x3,   size=x4.size()[2:], mode='bilinear')
+        x3 = F.interpolate(x3, size=x4.size()[2:], mode='bilinear')
         x4  = self.fuse(x4*x3) + x4
 
         pred1  = F.interpolate(self.predtrans1(x1),   size=shape, mode='bilinear')
@@ -173,8 +195,6 @@ class ICON(torch.nn.Module):
         pred3  = F.interpolate(self.predtrans3(x3),   size=shape, mode='bilinear')
         pred4  = F.interpolate(self.predtrans4(x4),   size=shape, mode='bilinear')
 
-
-        # return pred1, pred2, pred3, pred4, pose
         return pred1, pred2, pred3, pred4
 
     def initialize(self):

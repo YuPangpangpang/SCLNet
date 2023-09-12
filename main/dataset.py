@@ -225,9 +225,8 @@ class Config(object):
 
 ########################### Dataset Class ###########################
 class Data(Dataset):
-    def __init__(self, cfg, model_name):
+    def __init__(self, cfg):
         self.cfg        = cfg
-        self.model_name = model_name
         self.normalize  = Normalize(mean=cfg.mean, std=cfg.std)
         self.randomcrop = RandomCrop()
         self.randomflip = RandomFlip()
@@ -236,10 +235,8 @@ class Data(Dataset):
         self.gaussnoise = GaussNoise()
         self.Cutout = Cutout(n_holes=1, length=50)
 
-        if model_name == "ICON-S" or model_name == "ICON-P":
-            self.resize     = Resize(384, 384)
-        else:
-            self.resize     = Resize(352, 352)
+
+        self.resize     = Resize(384, 384)
         #self.randomrotate = RandomRotate()
         #self.colorenhance = ColorEnhance()
         #self.gaussnoise = GaussNoise()
@@ -288,11 +285,7 @@ class Data(Dataset):
         return len(self.samples)
 
     def collate(self, batch):
-        if self.model_name == "ICON-S" or self.model_name == "ICON-P" or self.model_name == "ICON-M":
-            size = 384
-            # size = 320
-        else:
-            size = [224, 256, 288, 320, 352][np.random.randint(0, 5)]
+        size = 384
         image1, mask, image2 = [list(item) for item in zip(*batch)]
         for i in range(len(batch)):
             image1[i] = cv2.resize(image1[i], dsize=(size, size), interpolation=cv2.INTER_LINEAR)

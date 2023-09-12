@@ -56,10 +56,7 @@ class Resize(object):
         mask  = cv2.resize( mask, dsize=(self.W, self.H), interpolation=cv2.INTER_LINEAR)
         body  = cv2.resize( body, dsize=(self.W, self.H), interpolation=cv2.INTER_LINEAR)
         detail= cv2.resize( detail, dsize=(self.W, self.H), interpolation=cv2.INTER_LINEAR)
-        return image, mask 
-
-
-
+        return image, mask
 
 class RandomRotate(object):
     def rotate(self, x, random_angle, mode='image'):
